@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 from datetime import datetime
@@ -8,7 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from telegram import Bot
 
 from config import Settings
-from formatter import format_daily_menu
+from formatter import format_daily_menu, split_message
 from menu_service import MenuService
 
 LOGGER = logging.getLogger(__name__)
@@ -58,7 +58,8 @@ class DailyMenuScheduler:
         try:
             snapshot = await self._menu_service.refresh_today_halal_menu(now)
             message = format_daily_menu(snapshot, now)
-            await self._bot.send_message(chat_id=self._settings.telegram_chat_id, text=message)
+            for chunk in split_message(message):
+                await self._bot.send_message(chat_id=self._settings.telegram_chat_id, text=chunk)
             LOGGER.info("Sent scheduled halal menu message to chat %s.", self._settings.telegram_chat_id)
         except Exception:
             LOGGER.exception("Scheduled daily halal menu send failed.")
