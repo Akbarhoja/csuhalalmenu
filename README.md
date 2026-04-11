@@ -82,6 +82,8 @@ TIMEZONE=America/Denver
 - `DAILY_SEND_HOUR`: Optional. Hour in 24-hour format. Default `7`.
 - `DAILY_SEND_MINUTE`: Optional. Minute. Default `0`.
 - `TIMEZONE`: Optional. IANA timezone name. Default `America/Denver`.
+- `USE_WEBHOOK`: Optional. Set to `true` for webhook deployments such as Render web services.
+- `WEBHOOK_BASE_URL`: Optional for local use. In webhook deployments, set this to your public app URL if your host does not provide `RENDER_EXTERNAL_URL`.
 
 ## Running The Bot
 
@@ -100,24 +102,27 @@ On startup the bot will:
 
 The bot should be deployed as an always-on background worker because it uses Telegram polling and an in-process daily scheduler.
 
-### Option 1: Render
+### Option 1: Render Free Web Service
 
-This repository now includes both a `Dockerfile` and `render.yaml`, so it can be deployed to Render as a worker service.
+This repository now includes both a `Dockerfile` and `render.yaml`, so it can be deployed to Render as a free web service using Telegram webhooks instead of polling.
 
 1. Push the project to GitHub.
 2. Sign in to Render.
 3. Click `New +` and choose `Blueprint`.
 4. Connect the GitHub repository.
-5. Render will detect `render.yaml` and create a worker named `csu-halal-bot`.
+5. Render will detect `render.yaml` and create a web service named `csu-halal-bot`.
 6. Set these environment variables in Render:
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_CHAT_ID`
    - `DAILY_SEND_HOUR`
    - `DAILY_SEND_MINUTE`
    - `TIMEZONE`
+   - `USE_WEBHOOK=true`
 7. Deploy the worker.
 
 After deployment, the bot will stay online even when your computer is off.
+
+Important: Render free web services can sleep after inactivity. That means webhook replies usually work after a short cold start, but the in-process daily scheduled message may be unreliable unless you keep the app awake with an external uptime monitor.
 
 ### Option 2: Any Docker-Based Host
 

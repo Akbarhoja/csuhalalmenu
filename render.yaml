@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: csu-halal-bot
     runtime: docker
     plan: free
@@ -15,3 +15,5 @@ services:
         value: "0"
       - key: TIMEZONE
         value: America/Denver
+      - key: USE_WEBHOOK
+        value: "true"

@@ -16,6 +16,9 @@ class Settings:
     daily_send_minute: int
     timezone_name: str
     timezone: ZoneInfo
+    port: int
+    webhook_base_url: str | None
+    use_webhook: bool
 
 
 def load_settings() -> Settings:
@@ -27,6 +30,13 @@ def load_settings() -> Settings:
     daily_send_hour = _parse_bounded_int("DAILY_SEND_HOUR", default="7", minimum=0, maximum=23)
     daily_send_minute = _parse_bounded_int("DAILY_SEND_MINUTE", default="0", minimum=0, maximum=59)
     timezone_name = os.getenv("TIMEZONE", "America/Denver").strip() or "America/Denver"
+    port = _parse_bounded_int("PORT", default="10000", minimum=1, maximum=65535)
+    webhook_base_url = (
+        os.getenv("WEBHOOK_BASE_URL", "").strip()
+        or os.getenv("RENDER_EXTERNAL_URL", "").strip()
+        or None
+    )
+    use_webhook = _parse_bool("USE_WEBHOOK", default=bool(webhook_base_url))
 
     try:
         timezone = ZoneInfo(timezone_name)
@@ -47,6 +57,9 @@ def load_settings() -> Settings:
         daily_send_minute=daily_send_minute,
         timezone_name=timezone_name,
         timezone=timezone,
+        port=port,
+        webhook_base_url=webhook_base_url,
+        use_webhook=use_webhook,
     )
 
 
@@ -69,3 +82,16 @@ def _parse_bounded_int(name: str, *, default: str, minimum: int, maximum: int) -
     if parsed < minimum or parsed > maximum:
         raise ValueError(f"{name} must be between {minimum} and {maximum}.")
     return parsed
+
+
+def _parse_bool(name: str, *, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    normalized = raw_value.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean-like value such as true or false.")
