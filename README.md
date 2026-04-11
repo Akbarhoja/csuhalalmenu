@@ -62,6 +62,8 @@ Meow, meow! No halal options were found for today.
 pip install -r requirements.txt
 ```
 
+The requirements include the `webhooks` extra for `python-telegram-bot`, so the same install works for both local polling and Render webhook deployments.
+
 ## Environment Setup
 
 1. Copy `.env.example` to `.env`
@@ -192,4 +194,5 @@ Run the included tests with:
 ```bash
 pytest
 ```
+
 
