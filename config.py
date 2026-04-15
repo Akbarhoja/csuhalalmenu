@@ -24,7 +24,7 @@ def load_settings() -> Settings:
     load_dotenv(dotenv_path=env_path, override=True, encoding="utf-8-sig")
 
     token = _require_env("TELEGRAM_BOT_TOKEN")
-    admin_chat_id_raw = _require_env("ADMIN_CHAT_ID")
+    admin_chat_id_raw = _require_env_fallback("ADMIN_CHAT_ID", fallback="TELEGRAM_CHAT_ID")
     timezone_name = os.getenv("TIMEZONE", "America/Denver").strip() or "America/Denver"
     port = _parse_bounded_int("PORT", default="10000", minimum=1, maximum=65535)
     webhook_base_url = (
@@ -44,7 +44,7 @@ def load_settings() -> Settings:
     try:
         admin_chat_id = int(admin_chat_id_raw)
     except ValueError as exc:
-        raise ValueError("ADMIN_CHAT_ID must be an integer.") from exc
+        raise ValueError("ADMIN_CHAT_ID or TELEGRAM_CHAT_ID must be an integer.") from exc
 
     return Settings(
         telegram_bot_token=token,
@@ -64,6 +64,20 @@ def _require_env(name: str) -> str:
             f"Missing required environment variable {name}. Copy .env.example to .env and fill it in."
         )
     return value
+
+
+def _require_env_fallback(name: str, *, fallback: str) -> str:
+    primary = os.getenv(name, "").strip()
+    if primary:
+        return primary
+
+    secondary = os.getenv(fallback, "").strip()
+    if secondary:
+        return secondary
+
+    raise ValueError(
+        f"Missing required environment variable {name}. You can also set {fallback} for compatibility."
+    )
 
 
 def _parse_bounded_int(name: str, *, default: str, minimum: int, maximum: int) -> int:
