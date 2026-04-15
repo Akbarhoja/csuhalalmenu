@@ -72,24 +72,6 @@ def _format_calories(calories: float | None) -> str:
     return f"{calories:g}"
 
 
-def format_stats_report(report, today_label: str) -> str:
-    return (
-        "Bot Stats\n\n"
-        f"{today_label}:\n"
-        f"- Total messages: {report.today.total_messages}\n"
-        f"- Successful: {report.today.successful}\n"
-        f"- Failed: {report.today.failed}\n"
-        f"- Unique chats: {report.today.unique_chats}\n"
-        f"- Scheduled: {report.today.scheduled}\n"
-        f"- Manual: {report.today.manual}\n\n"
-        "All-time:\n"
-        f"- Total messages: {report.all_time.total_messages}\n"
-        f"- Successful: {report.all_time.successful}\n"
-        f"- Failed: {report.all_time.failed}\n"
-        f"- Unique chats: {report.all_time.unique_chats}"
-    )
-
-
 def split_message(text: str, limit: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:
     if len(text) <= limit:
         return [text]

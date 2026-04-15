@@ -10,7 +10,6 @@ from telegram import Bot
 from config import Settings
 from formatter import format_daily_menu, split_message
 from menu_service import MenuService
-from stats_service import StatsService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,12 +21,10 @@ class DailyMenuScheduler:
         bot: Bot,
         menu_service: MenuService,
         settings: Settings,
-        stats_service: StatsService,
     ) -> None:
         self._bot = bot
         self._menu_service = menu_service
         self._settings = settings
-        self._stats_service = stats_service
         self._scheduler = AsyncIOScheduler(timezone=settings.timezone)
 
     def start(self) -> None:
@@ -74,24 +71,8 @@ class DailyMenuScheduler:
         for chunk in split_message(message):
             try:
                 await self._bot.send_message(chat_id=self._settings.telegram_chat_id, text=chunk)
-            except Exception as exc:
-                await self._stats_service.log_message_attempt(
-                    chat_id=self._settings.telegram_chat_id,
-                    message_type="scheduled_daily",
-                    success=False,
-                    sent_at=now,
-                    event_date=now.date(),
-                    failure_reason=str(exc),
-                )
+            except Exception:
                 LOGGER.exception("Scheduled daily halal menu send failed.")
                 return
-
-            await self._stats_service.log_message_attempt(
-                chat_id=self._settings.telegram_chat_id,
-                message_type="scheduled_daily",
-                success=True,
-                sent_at=now,
-                event_date=now.date(),
-            )
 
         LOGGER.info("Sent scheduled halal menu message to chat %s.", self._settings.telegram_chat_id)

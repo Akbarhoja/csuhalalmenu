@@ -1,41 +1,39 @@
 # CSU Halal Menu Telegram Bot
 
-This project is a production-ready Python Telegram bot that checks the Colorado State University Nutrislice menus at `https://csumenus.nutrislice.com/`, searches all discoverable dining locations for today's breakfast, lunch, and dinner menus, filters items containing `halal` case-insensitively, and sends the results through Telegram.
+This project is a Python Telegram bot that checks the Colorado State University Nutrislice menus at `https://csumenus.nutrislice.com/`, searches all discoverable dining locations for today's breakfast, lunch, and dinner menus, filters items containing `halal` case-insensitively, and sends the results through Telegram.
 
-The bot now also:
+The bot also:
 
 - shows the highest-calorie Kosher Bistro item for lunch and dinner separately at the bottom of each menu message
-- records sent-message stats in a durable database so stats survive restarts, redeploys, and free-host sleep cycles
-- provides an admin-only `/stats` command for usage reporting
+- sends an admin notification whenever a user manually requests today's halal menu
+- supports a daily scheduled menu message
 
 ## Project Structure
 
 ```text
 csuhalalmenu/
-+-- .env.example
-+-- .dockerignore
-+-- .gitignore
-+-- Dockerfile
-+-- README.md
-+-- bot.py
-+-- config.py
-+-- constants.py
-+-- db.py
-+-- formatter.py
-+-- logging_config.py
-+-- main.py
-+-- menu_service.py
-+-- models.py
-+-- nutrislice_client.py
-+-- requirements.txt
-+-- render.yaml
-+-- scheduler.py
-+-- stats_service.py
-+-- utils.py
-+-- tests
-    +-- test_formatter.py
-    +-- test_menu_service.py
-    +-- test_stats_service.py
+├── .env.example
+├── .dockerignore
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── bot.py
+├── config.py
+├── constants.py
+├── formatter.py
+├── logging_config.py
+├── main.py
+├── menu_service.py
+├── models.py
+├── notifications.py
+├── nutrislice_client.py
+├── requirements.txt
+├── render.yaml
+├── scheduler.py
+├── utils.py
+└── tests
+    ├── test_formatter.py
+    └── test_menu_service.py
 ```
 
 ## What The Bot Does
@@ -47,9 +45,8 @@ When a user presses `Todays Halal Menu`, the bot:
 3. Filters menu entries whose name or description contains `halal`, case-insensitively.
 4. Deduplicates repeated food items within each meal and location.
 5. Finds the highest-calorie Kosher Bistro lunch item and highest-calorie Kosher Bistro dinner item from The Foundry.
-6. Sends a formatted Telegram message.
-
-If nothing halal is found for the day, the bot still includes the Kosher Bistro section at the bottom.
+6. Sends a formatted Telegram message to the user.
+7. Sends a separate notification message to the configured admin chat.
 
 ## Kosher Bistro Output
 
@@ -70,6 +67,24 @@ Fallbacks:
 - If no dinner item exists: `- No Kosher Bistro items found for dinner`
 - If items exist but calorie data is unavailable: `- Found Kosher Bistro items, but calorie data is unavailable`
 
+## Admin Usage Notification
+
+Every time a user manually requests today's halal menu, the bot sends an admin notification to `ADMIN_CHAT_ID`.
+
+Example notification:
+
+```text
+This user used the bot:
+- Name: John Doe
+- Username: @johndoe
+- User ID: 123456789
+- Chat ID: 123456789
+- Time: April 15, 2026 07:30 PM MDT
+- Action: Requested Today's Halal Menu
+```
+
+If the admin notification fails, the bot logs the error and still replies to the user normally.
+
 ## Installation
 
 1. Create and activate a Python 3.11+ virtual environment.
@@ -78,12 +93,6 @@ Fallbacks:
 ```bash
 pip install -r requirements.txt
 ```
-
-The requirements include:
-
-- `python-telegram-bot[webhooks]` for both local polling and webhook deployment
-- `SQLAlchemy` for database access
-- `psycopg[binary]` for PostgreSQL-backed persistent stats
 
 ## Environment Setup
 
@@ -98,9 +107,7 @@ DAILY_SEND_MINUTE=0
 TIMEZONE=America/Denver
 USE_WEBHOOK=false
 WEBHOOK_BASE_URL=
-DATABASE_URL=postgresql://username:password@host:5432/database_name
 ADMIN_CHAT_ID=your_admin_chat_id
-ADMIN_USER_ID=
 ```
 
 ### Environment Variables
@@ -112,71 +119,7 @@ ADMIN_USER_ID=
 - `TIMEZONE`: Optional. IANA timezone name. Default `America/Denver`.
 - `USE_WEBHOOK`: Optional. Set to `true` for webhook deployments such as Render web services.
 - `WEBHOOK_BASE_URL`: Optional for local use. In webhook deployments, set this if your host does not provide `RENDER_EXTERNAL_URL`.
-- `DATABASE_URL`: Required. Durable database connection string. Use PostgreSQL on hosted environments so stats survive restarts and free-host shutdowns.
-- `ADMIN_CHAT_ID`: Required for admin stats access. Only this chat can use `/stats` unless `ADMIN_USER_ID` is also configured.
-- `ADMIN_USER_ID`: Optional. Restricts `/stats` to a specific Telegram user ID.
-
-## Persistent Stats Storage
-
-The bot records every outgoing message attempt in a database-backed `message_logs` table.
-
-Tracked fields include:
-
-- `event_date`
-- `chat_id`
-- `message_type`
-- `success`
-- `sent_at`
-- `failure_reason`
-
-The bot also calculates daily and all-time aggregates for:
-
-- total messages
-- successful sends
-- failed sends
-- unique chats
-- scheduled sends
-- manual sends
-
-### Why Remote DB Storage Matters
-
-Free web hosts often sleep, restart, or redeploy services, which can wipe in-memory state and sometimes local writable storage. Because of that, this bot is designed to use a durable database through `DATABASE_URL` instead of relying on memory-only counters or temporary files.
-
-For production or free-host deployments, use a remote PostgreSQL database.
-
-## Admin Stats Command
-
-Use the admin-only command:
-
-```text
-/stats
-```
-
-Example output:
-
-```text
-Bot Stats
-
-Today (April 15, 2026):
-- Total messages: 17
-- Successful: 16
-- Failed: 1
-- Unique chats: 9
-- Scheduled: 1
-- Manual: 16
-
-All-time:
-- Total messages: 428
-- Successful: 420
-- Failed: 8
-- Unique chats: 57
-```
-
-Access control:
-
-- The bot checks `ADMIN_CHAT_ID`
-- If `ADMIN_USER_ID` is set, it also allows that specific user
-- Non-admin users receive an access denied response
+- `ADMIN_CHAT_ID`: Required. Chat ID that receives manual-use notifications from the bot.
 
 ## Running The Bot Locally
 
@@ -188,7 +131,6 @@ On startup the bot will:
 
 - validate required environment variables
 - configure structured logging
-- initialize the database schema if needed
 - start Telegram polling locally, or webhook mode if configured
 - start the daily scheduler
 
@@ -198,7 +140,7 @@ This repository includes both a `Dockerfile` and `render.yaml`, so it can be dep
 
 ### Render Free Web Service Notes
 
-You can deploy the bot as a free web service using Telegram webhooks, but there is an important limitation:
+You can deploy the bot as a free web service using Telegram webhooks, but there is one important limitation:
 
 - free Render web services can sleep after inactivity
 - webhook requests can wake them up
@@ -208,7 +150,6 @@ Because of that:
 
 - the manual menu reply works reasonably well in webhook mode
 - scheduled daily sends are best on always-on hosting or paid plans
-- the stats data itself still survives, because it is stored in the database, not only in memory
 
 ### Deploy Steps
 
@@ -221,9 +162,7 @@ Because of that:
    - `DAILY_SEND_MINUTE`
    - `TIMEZONE`
    - `USE_WEBHOOK=true`
-   - `DATABASE_URL`
    - `ADMIN_CHAT_ID`
-   - optionally `ADMIN_USER_ID`
 4. Deploy the service.
 
 ## How The Scheduler Works
@@ -233,7 +172,8 @@ The project uses `APScheduler` with `AsyncIOScheduler`.
 - The scheduled send runs once per day using the configured hour and minute.
 - The scheduler uses the configured timezone.
 - It coalesces missed runs and limits concurrent executions to one instance.
-- The scheduled message uses the same menu formatter and stats logging flow as the manual button-triggered reply.
+- The scheduled message uses the same menu formatter as the manual button-triggered reply.
+- Scheduled sends do not generate admin usage notifications.
 
 ## Troubleshooting
 
@@ -243,7 +183,6 @@ If startup fails with a configuration error, check:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
-- `DATABASE_URL`
 - `ADMIN_CHAT_ID`
 
 ### Telegram messages are not arriving
@@ -252,21 +191,17 @@ If startup fails with a configuration error, check:
 - Make sure the target chat has started a conversation with the bot.
 - Double-check `TELEGRAM_CHAT_ID`.
 
-### /stats does not work
+### Admin notifications are not arriving
 
-- Make sure you are sending `/stats` from the configured `ADMIN_CHAT_ID`
-- If using `ADMIN_USER_ID`, make sure it matches your Telegram user ID
-- Check logs for database connectivity or permission issues
+- Make sure `ADMIN_CHAT_ID` is correct.
+- Make sure the bot is allowed to message that chat.
+- Check the app logs for notification send errors.
 
-### Database connection errors
+### No halal items are returned
 
-- Verify `DATABASE_URL` is valid
-- For PostgreSQL, make sure the database is reachable from your host
-- If your provider gives `postgres://...`, the app normalizes it automatically for SQLAlchemy/psycopg
-
-### Free host restarted and stats still matter
-
-That is exactly why this project uses database-backed storage. As long as `DATABASE_URL` points to a durable remote database, the stats survive bot restarts and redeploys.
+- The bot only checks today's menus.
+- It only matches items containing the word `halal` in the item name or description.
+- If CSU does not publish halal text on the menu for that day, the bot will return no results.
 
 ## Tests
 
@@ -282,4 +217,3 @@ The tests cover:
 - highest-calorie Kosher Bistro lunch item
 - highest-calorie Kosher Bistro dinner item
 - message formatting
-- persistent stats logging and aggregate queries

@@ -4,11 +4,9 @@ import logging
 
 from bot import build_application
 from config import load_settings
-from db import DatabaseManager
 from logging_config import configure_logging
 from menu_service import MenuService
 from nutrislice_client import NutrisliceClient
-from stats_service import StatsService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,12 +24,8 @@ def main() -> None:
         settings.use_webhook,
     )
 
-    database = DatabaseManager(settings.database_url)
-    stats_service = StatsService(database)
-    stats_service.init_schema()
-
     menu_service = MenuService(NutrisliceClient(), settings.timezone_name)
-    application = build_application(settings, menu_service, stats_service)
+    application = build_application(settings, menu_service)
     if settings.use_webhook:
         if not settings.webhook_base_url:
             raise ValueError(

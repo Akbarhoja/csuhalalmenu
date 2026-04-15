@@ -15,15 +15,15 @@ from constants import (
     UNKNOWN_MESSAGE,
     USER_REQUEST_COOLDOWN_SECONDS,
 )
-from formatter import format_daily_menu, format_stats_report, split_message
+from formatter import format_daily_menu, split_message
 from menu_service import MenuService
+from notifications import AdminNotificationService
 from scheduler import DailyMenuScheduler
-from stats_service import StatsService
 
 LOGGER = logging.getLogger(__name__)
 
 
-def build_application(settings: Settings, menu_service: MenuService, stats_service: StatsService) -> Application:
+def build_application(settings: Settings, menu_service: MenuService) -> Application:
     scheduler_holder: dict[str, DailyMenuScheduler] = {}
 
     async def post_init(application: Application) -> None:
@@ -31,10 +31,11 @@ def build_application(settings: Settings, menu_service: MenuService, stats_servi
             bot=application.bot,
             menu_service=menu_service,
             settings=settings,
-            stats_service=stats_service,
         )
+        notification_service = AdminNotificationService(bot=application.bot, settings=settings)
         scheduler_holder["scheduler"] = scheduler
         application.bot_data["scheduler"] = scheduler
+        application.bot_data["notification_service"] = notification_service
         scheduler.start()
         LOGGER.info("Telegram application initialized.")
 
@@ -53,12 +54,10 @@ def build_application(settings: Settings, menu_service: MenuService, stats_servi
     )
 
     application.bot_data["menu_service"] = menu_service
-    application.bot_data["stats_service"] = stats_service
     application.bot_data["settings"] = settings
     application.bot_data["user_request_times"] = {}
 
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(MessageHandler(filters.Regex(f"^{BOT_BUTTON_TEXT}$"), todays_halal_menu))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text_message))
     application.add_error_handler(error_handler)
@@ -78,7 +77,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         update,
         UNKNOWN_MESSAGE,
         include_keyboard=True,
-        message_type="other_response",
         context=context,
     )
 
@@ -86,6 +84,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def todays_halal_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.application.bot_data["settings"]
     menu_service: MenuService = context.application.bot_data["menu_service"]
+    notification_service: AdminNotificationService = context.application.bot_data["notification_service"]
     now = datetime.now(settings.timezone)
 
     if _is_rate_limited(update, context):
@@ -93,7 +92,6 @@ async def todays_halal_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             update,
             COOLDOWN_MESSAGE,
             include_keyboard=True,
-            message_type="other_response",
             context=context,
             sent_at=now,
         )
@@ -110,41 +108,22 @@ async def todays_halal_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         update,
         message,
         include_keyboard=True,
-        message_type="manual_menu",
         context=context,
         sent_at=now,
     )
-
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    settings: Settings = context.application.bot_data["settings"]
-    if not _is_admin(update, settings):
-        return
-
-    stats_service: StatsService = context.application.bot_data["stats_service"]
-    now = datetime.now(settings.timezone)
-    report = await stats_service.build_report(now.date())
-    message = format_stats_report(report, "Today")
-    await _reply_in_chunks(
+    await notification_service.notify_manual_usage(
         update,
-        message,
-        include_keyboard=True,
-        message_type="other_response",
-        context=context,
-        sent_at=now,
+        action="Requested Today's Halal Menu",
+        now=now,
     )
 
 
 async def unknown_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    settings: Settings = context.application.bot_data["settings"]
-    now = datetime.now(settings.timezone)
     await _reply_in_chunks(
         update,
         UNKNOWN_MESSAGE,
         include_keyboard=True,
-        message_type="other_response",
         context=context,
-        sent_at=now,
     )
 
 
@@ -159,7 +138,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             update,
             GENERIC_ERROR_MESSAGE,
             include_keyboard=True,
-            message_type="error_response",
             context=context,
             sent_at=now,
         )
@@ -179,47 +157,19 @@ def _is_rate_limited(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool
     return previous is not None and now_monotonic - previous < USER_REQUEST_COOLDOWN_SECONDS
 
 
-def _is_admin(update: Update, settings: Settings) -> bool:
-    if update.effective_chat is not None and update.effective_chat.id == settings.admin_chat_id:
-        return True
-    return settings.admin_user_id is not None and update.effective_user is not None and update.effective_user.id == settings.admin_user_id
-
-
 async def _reply_in_chunks(
     update: Update,
     text: str,
     *,
     include_keyboard: bool,
-    message_type: str,
     context: ContextTypes.DEFAULT_TYPE,
     sent_at: datetime | None = None,
 ) -> None:
-    if update.effective_message is None or update.effective_chat is None:
+    del context, sent_at
+    if update.effective_message is None:
         return
 
-    settings: Settings = context.application.bot_data["settings"]
-    stats_service: StatsService = context.application.bot_data["stats_service"]
-    timestamp = sent_at or datetime.now(settings.timezone)
     chunks = split_message(text)
     for index, chunk in enumerate(chunks):
         reply_markup = build_reply_keyboard() if include_keyboard and index == len(chunks) - 1 else None
-        try:
-            await update.effective_message.reply_text(chunk, reply_markup=reply_markup)
-        except Exception as exc:
-            await stats_service.log_message_attempt(
-                chat_id=update.effective_chat.id,
-                message_type=message_type,
-                success=False,
-                sent_at=timestamp,
-                event_date=timestamp.date(),
-                failure_reason=str(exc),
-            )
-            raise
-
-        await stats_service.log_message_attempt(
-            chat_id=update.effective_chat.id,
-            message_type=message_type,
-            success=True,
-            sent_at=timestamp,
-            event_date=timestamp.date(),
-        )
+        await update.effective_message.reply_text(chunk, reply_markup=reply_markup)

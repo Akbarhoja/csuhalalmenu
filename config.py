@@ -19,9 +19,7 @@ class Settings:
     port: int
     webhook_base_url: str | None
     use_webhook: bool
-    database_url: str
     admin_chat_id: int
-    admin_user_id: int | None
 
 
 def load_settings() -> Settings:
@@ -30,7 +28,6 @@ def load_settings() -> Settings:
 
     token = _require_env("TELEGRAM_BOT_TOKEN")
     chat_id_raw = _require_env("TELEGRAM_CHAT_ID")
-    database_url = _require_env("DATABASE_URL")
     daily_send_hour = _parse_bounded_int("DAILY_SEND_HOUR", default="7", minimum=0, maximum=23)
     daily_send_minute = _parse_bounded_int("DAILY_SEND_MINUTE", default="0", minimum=0, maximum=59)
     timezone_name = os.getenv("TIMEZONE", "America/Denver").strip() or "America/Denver"
@@ -55,7 +52,6 @@ def load_settings() -> Settings:
         raise ValueError("TELEGRAM_CHAT_ID must be an integer.") from exc
 
     admin_chat_id = _parse_optional_int("ADMIN_CHAT_ID") or chat_id
-    admin_user_id = _parse_optional_int("ADMIN_USER_ID")
 
     return Settings(
         telegram_bot_token=token,
@@ -67,9 +63,7 @@ def load_settings() -> Settings:
         port=port,
         webhook_base_url=webhook_base_url,
         use_webhook=use_webhook,
-        database_url=database_url,
         admin_chat_id=admin_chat_id,
-        admin_user_id=admin_user_id,
     )
 
 

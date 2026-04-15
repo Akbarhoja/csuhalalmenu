@@ -3,16 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from formatter import format_daily_menu, format_stats_report
+from formatter import format_daily_menu
 from models import (
     DailyMenuResult,
     DailyMenuSnapshot,
     KosherBistroMainFoods,
     KosherBistroMealMainFood,
     MenuEntry,
-    MessageStatsSummary,
 )
-from stats_service import StatsReport
 
 
 def test_format_daily_menu_with_results() -> None:
@@ -84,43 +82,4 @@ def test_format_daily_menu_without_results() -> None:
         "- No Kosher Bistro items found for lunch\n\n"
         "Dinner:\n"
         "- Found Kosher Bistro items, but calorie data is unavailable"
-    )
-
-
-def test_format_stats_report() -> None:
-    report = StatsReport(
-        today=MessageStatsSummary(
-            total_messages=17,
-            successful=16,
-            failed=1,
-            unique_chats=9,
-            scheduled=1,
-            manual=16,
-        ),
-        all_time=MessageStatsSummary(
-            total_messages=428,
-            successful=420,
-            failed=8,
-            unique_chats=57,
-            scheduled=20,
-            manual=408,
-        ),
-    )
-
-    message = format_stats_report(report, "April 15, 2026")
-
-    assert message == (
-        "Bot Stats\n\n"
-        "Today (April 15, 2026):\n"
-        "- Total messages: 17\n"
-        "- Successful: 16\n"
-        "- Failed: 1\n"
-        "- Unique chats: 9\n"
-        "- Scheduled: 1\n"
-        "- Manual: 16\n\n"
-        "All-time:\n"
-        "- Total messages: 428\n"
-        "- Successful: 420\n"
-        "- Failed: 8\n"
-        "- Unique chats: 57"
     )
