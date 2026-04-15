@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Iterable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from constants import MEAL_ORDER
@@ -22,17 +22,24 @@ LOGGER = logging.getLogger(__name__)
 
 
 class MenuService:
-    def __init__(self, client: NutrisliceClient, timezone_name: str) -> None:
+    def __init__(
+        self,
+        client: NutrisliceClient,
+        timezone_name: str,
+        *,
+        cache_ttl_seconds: int = 300,
+    ) -> None:
         self._client = client
         self._timezone_name = timezone_name
         self._kosher_bistro_service = KosherBistroService()
+        self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self._cache_lock = asyncio.Lock()
         self._cached_snapshot: DailyMenuSnapshot | None = None
 
     async def get_today_halal_menu(self, now: datetime) -> DailyMenuSnapshot:
         target_date_text = now.date().isoformat()
         cached_snapshot = self._cached_snapshot
-        if cached_snapshot is not None and cached_snapshot.target_date == target_date_text:
+        if self._is_cache_valid(cached_snapshot, now, target_date_text):
             LOGGER.info(
                 "Using cached halal menu for %s fetched at %s.",
                 cached_snapshot.target_date,
@@ -42,7 +49,7 @@ class MenuService:
 
         async with self._cache_lock:
             cached_snapshot = self._cached_snapshot
-            if cached_snapshot is not None and cached_snapshot.target_date == target_date_text:
+            if self._is_cache_valid(cached_snapshot, now, target_date_text):
                 LOGGER.info(
                     "Using cached halal menu for %s fetched at %s.",
                     cached_snapshot.target_date,
@@ -72,37 +79,33 @@ class MenuService:
 
         results: dict[str, dict[str, list[MenuEntry]]] = {meal_name: {} for meal_name in MEAL_ORDER}
         kosher_items_by_meal: dict[str, list[str]] = {"Lunch": [], "Dinner": []}
+        fetch_tasks = [
+            self._fetch_meal_payload(
+                location=location,
+                meal_name=meal_name,
+                target_date=target_date,
+            )
+            for location in locations
+            for meal_name in MEAL_ORDER
+        ]
+        fetch_results = await asyncio.gather(*fetch_tasks)
 
-        for location in locations:
-            for meal_name in MEAL_ORDER:
-                try:
-                    payload = await self._client.fetch_menu_payload(
-                        location_slug=location.slug,
-                        meal_name=meal_name,
-                        target_date=target_date,
-                    )
-                except Exception as exc:
-                    LOGGER.warning(
-                        "Failed to fetch %s menu for %s (%s): %s",
-                        meal_name,
-                        location.name,
-                        location.slug,
-                        exc,
-                    )
-                    continue
+        for location, meal_name, payload in fetch_results:
+            if payload is None:
+                continue
 
-                entries = self._extract_halal_entries(
-                    payload=payload,
-                    location=location,
-                    target_date=target_date,
+            entries = self._extract_halal_entries(
+                payload=payload,
+                location=location,
+                target_date=target_date,
+            )
+            if entries:
+                results[meal_name][location.name] = entries
+
+            if self._is_foundry(location) and meal_name in kosher_items_by_meal:
+                kosher_items_by_meal[meal_name].extend(
+                    self._kosher_bistro_service.extract_items(payload=payload, target_date=target_date)
                 )
-                if entries:
-                    results[meal_name][location.name] = entries
-
-                if self._is_foundry(location) and meal_name in kosher_items_by_meal:
-                    kosher_items_by_meal[meal_name].extend(
-                        self._kosher_bistro_service.extract_items(payload=payload, target_date=target_date)
-                    )
 
         return DailyMenuSnapshot(
             target_date=target_date.isoformat(),
@@ -113,6 +116,40 @@ class MenuService:
                 dinner=self._kosher_bistro_service.choose_main_food(kosher_items_by_meal["Dinner"]),
             ),
         )
+
+    async def _fetch_meal_payload(
+        self,
+        *,
+        location: DiningLocation,
+        meal_name: str,
+        target_date: date,
+    ) -> tuple[DiningLocation, str, Any | None]:
+        try:
+            payload = await self._client.fetch_menu_payload(
+                location_slug=location.slug,
+                meal_name=meal_name,
+                target_date=target_date,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "Failed to fetch %s menu for %s (%s): %s",
+                meal_name,
+                location.name,
+                location.slug,
+                exc,
+            )
+            return location, meal_name, None
+        return location, meal_name, payload
+
+    def _is_cache_valid(
+        self,
+        snapshot: DailyMenuSnapshot | None,
+        now: datetime,
+        target_date_text: str,
+    ) -> bool:
+        if snapshot is None or snapshot.target_date != target_date_text:
+            return False
+        return now - snapshot.fetched_at < self._cache_ttl
 
     def _extract_halal_entries(
         self,

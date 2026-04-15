@@ -20,9 +20,6 @@ def test_admin_notification_service_formats_manual_usage_message() -> None:
     fake_bot = FakeBot()
     settings = Settings(
         telegram_bot_token="token",
-        telegram_chat_id=123,
-        daily_send_hour=7,
-        daily_send_minute=0,
         timezone_name="America/Denver",
         timezone=ZoneInfo("America/Denver"),
         port=10000,

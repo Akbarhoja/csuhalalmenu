@@ -4,13 +4,18 @@ import json
 import logging
 import re
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from constants import MEAL_SLUGS, NUTRISLICE_BASE_URL
 from models import DiningLocation
@@ -20,22 +25,33 @@ LOGGER = logging.getLogger(__name__)
 
 
 class NutrisliceClient:
-    def __init__(self, *, timeout_seconds: float = 20.0) -> None:
+    def __init__(self, *, timeout_seconds: float = 8.0) -> None:
         self._timeout = timeout_seconds
         self._api_base_url = self._derive_api_base_url(NUTRISLICE_BASE_URL)
         self._site_host = urlparse(NUTRISLICE_BASE_URL).netloc
+        self._cached_locations: list[DiningLocation] | None = None
+        self._cached_locations_at: datetime | None = None
+        self._locations_ttl = timedelta(hours=6)
 
     async def discover_locations(self) -> list[DiningLocation]:
+        if self._cached_locations is not None and self._cached_locations_at is not None:
+            if datetime.utcnow() - self._cached_locations_at < self._locations_ttl:
+                return self._cached_locations
+
         async with self._build_api_client() as client:
             locations = await self._discover_from_api(client)
             if locations:
                 LOGGER.info("Discovered %s dining locations from Nutrislice API.", len(locations))
+                self._cached_locations = locations
+                self._cached_locations_at = datetime.utcnow()
                 return locations
 
         async with self._build_site_client() as client:
             locations = await self._discover_from_homepage(client)
             if locations:
                 LOGGER.info("Discovered %s dining locations from Nutrislice homepage.", len(locations))
+                self._cached_locations = locations
+                self._cached_locations_at = datetime.utcnow()
                 return locations
 
         raise RuntimeError("Unable to discover CSU dining locations from Nutrislice.")
@@ -94,9 +110,9 @@ class NutrisliceClient:
 
     async def _request_text(self, client: httpx.AsyncClient, endpoint: str) -> str:
         async for attempt in AsyncRetrying(
-            retry=retry_if_exception_type(httpx.HTTPError),
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=1, max=6),
+            retry=retry_if_exception_type((httpx.TimeoutException, httpx.TransportError)),
+            stop=stop_after_attempt(2),
+            wait=wait_exponential(multiplier=0.4, min=0.4, max=1.2),
             reraise=True,
         ):
             with attempt:

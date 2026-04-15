@@ -1,71 +1,87 @@
 # CSU Halal Menu Telegram Bot
 
-This project is a Python Telegram bot that checks the Colorado State University Nutrislice menus at `https://csumenus.nutrislice.com/`, searches all discoverable dining locations for today's breakfast, lunch, and dinner menus, filters items containing `halal` case-insensitively, and sends the results through Telegram.
+This project is a Python Telegram bot that checks the Colorado State University Nutrislice menus at `https://csumenus.nutrislice.com/`, searches all discoverable dining locations for today's breakfast, lunch, and dinner menus, filters items containing `halal` case-insensitively, and sends the results through Telegram on demand.
 
 The bot also:
 
-- shows the highest-calorie Kosher Bistro item for lunch and dinner separately at the bottom of each menu message
+- shows the most likely Kosher Bistro lunch and dinner main foods using entree heuristics
+- falls back to listing all Kosher Bistro items for a meal if no clear main dish is detected
 - sends an admin notification whenever a user manually requests today's halal menu
-- supports a daily scheduled menu message
+- uses a short in-memory cache to speed up repeated requests during the same runtime
 
 ## Project Structure
 
 ```text
 csuhalalmenu/
-├── .env.example
-├── .dockerignore
-├── .gitignore
-├── Dockerfile
-├── README.md
-├── bot.py
-├── config.py
-├── constants.py
-├── formatter.py
-├── logging_config.py
-├── main.py
-├── menu_service.py
-├── models.py
-├── notifications.py
-├── nutrislice_client.py
-├── requirements.txt
-├── render.yaml
-├── scheduler.py
-├── utils.py
-└── tests
-    ├── test_formatter.py
-    └── test_menu_service.py
+|-- .env.example
+|-- .dockerignore
+|-- .gitignore
+|-- Dockerfile
+|-- README.md
+|-- bot.py
+|-- config.py
+|-- constants.py
+|-- formatter.py
+|-- kosher_bistro_service.py
+|-- logging_config.py
+|-- main.py
+|-- menu_service.py
+|-- models.py
+|-- notifications.py
+|-- nutrislice_client.py
+|-- requirements.txt
+|-- render.yaml
+|-- utils.py
+`-- tests
+    |-- test_bot.py
+    |-- test_formatter.py
+    |-- test_kosher_bistro_service.py
+    |-- test_menu_service.py
+    `-- test_notifications.py
 ```
 
 ## What The Bot Does
 
 When a user presses `Todays Halal Menu`, the bot:
 
-1. Discovers CSU dining locations from Nutrislice.
-2. Fetches today's breakfast, lunch, and dinner menu data for each location.
-3. Filters menu entries whose name or description contains `halal`, case-insensitively.
-4. Deduplicates repeated food items within each meal and location.
-5. Finds the highest-calorie Kosher Bistro lunch item and highest-calorie Kosher Bistro dinner item from The Foundry.
-6. Sends a formatted Telegram message to the user.
-7. Sends a separate notification message to the configured admin chat.
+1. Acknowledges the request quickly.
+2. Fetches or reuses a short-lived in-memory cache of today's menu data.
+3. Checks all discoverable CSU dining locations for today's breakfast, lunch, and dinner menus.
+4. Filters items whose name or description contains `halal`, case-insensitively.
+5. Identifies likely Kosher Bistro lunch and dinner mains from The Foundry using item-name heuristics.
+6. Sends the final formatted menu to the user.
+7. Sends a separate admin notification to `ADMIN_CHAT_ID`.
+
+The bot responds only on demand. There is no automatic scheduled daily send anymore.
 
 ## Kosher Bistro Output
 
-The bot appends this section to the bottom of every manual and scheduled menu message:
+The bot appends this section to the bottom of every manual menu response:
 
 ```text
 Kosher Bistro Main Foods:
 Lunch:
-- {item name} ({calories} cal)
+- {best lunch item}
 
 Dinner:
-- {item name} ({calories} cal)
+- {best dinner item}
 ```
 
-Fallbacks:
+If no clear main item is found for a meal, the bot falls back to:
 
-- If no lunch item exists: `- No Kosher Bistro items found for lunch`
-- If no dinner item exists: `- No Kosher Bistro items found for dinner`
-- If items exist but calorie data is unavailable: `- Found Kosher Bistro items, but calorie data is unavailable`
+```text
+Lunch:
+- Main item unclear, showing all items:
+  - {item 1}
+  - {item 2}
+```
+
+If no items exist for a meal, the bot shows:
+
+```text
+Dinner:
+- No Kosher Bistro items found for dinner
+```
 
 ## Admin Usage Notification
 
@@ -85,6 +101,17 @@ This user used the bot:
 
 If the admin notification fails, the bot logs the error and still replies to the user normally.
 
+## Performance Notes
+
+To improve responsiveness:
+
+- location discovery is cached in memory during runtime
+- today's menu snapshot is cached for a short time window
+- per-location meal fetches are run concurrently
+- HTTP timeouts are shorter and retries are limited to transient transport issues
+
+This keeps repeated button presses from hammering Nutrislice unnecessarily while still refreshing data often enough for normal use.
+
 ## Installation
 
 1. Create and activate a Python 3.11+ virtual environment.
@@ -101,9 +128,6 @@ pip install -r requirements.txt
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-DAILY_SEND_HOUR=7
-DAILY_SEND_MINUTE=0
 TIMEZONE=America/Denver
 USE_WEBHOOK=false
 WEBHOOK_BASE_URL=
@@ -113,9 +137,6 @@ ADMIN_CHAT_ID=your_admin_chat_id
 ### Environment Variables
 
 - `TELEGRAM_BOT_TOKEN`: Required. Telegram Bot API token from BotFather.
-- `TELEGRAM_CHAT_ID`: Required. Chat ID that receives the scheduled daily menu message.
-- `DAILY_SEND_HOUR`: Optional. Hour in 24-hour format. Default `7`.
-- `DAILY_SEND_MINUTE`: Optional. Minute. Default `0`.
 - `TIMEZONE`: Optional. IANA timezone name. Default `America/Denver`.
 - `USE_WEBHOOK`: Optional. Set to `true` for webhook deployments such as Render web services.
 - `WEBHOOK_BASE_URL`: Optional for local use. In webhook deployments, set this if your host does not provide `RENDER_EXTERNAL_URL`.
@@ -132,7 +153,6 @@ On startup the bot will:
 - validate required environment variables
 - configure structured logging
 - start Telegram polling locally, or webhook mode if configured
-- start the daily scheduler
 
 ## Deploying Online
 
@@ -140,16 +160,7 @@ This repository includes both a `Dockerfile` and `render.yaml`, so it can be dep
 
 ### Render Free Web Service Notes
 
-You can deploy the bot as a free web service using Telegram webhooks, but there is one important limitation:
-
-- free Render web services can sleep after inactivity
-- webhook requests can wake them up
-- in-process scheduled jobs may be delayed or skipped if the service is asleep
-
-Because of that:
-
-- the manual menu reply works reasonably well in webhook mode
-- scheduled daily sends are best on always-on hosting or paid plans
+You can deploy the bot as a free web service using Telegram webhooks. Because free Render services can sleep after inactivity, the bot is designed for on-demand use instead of automatic scheduled sends.
 
 ### Deploy Steps
 
@@ -157,23 +168,10 @@ Because of that:
 2. Create a Render Blueprint or web service from the repo.
 3. Set these environment variables in Render:
    - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_CHAT_ID`
-   - `DAILY_SEND_HOUR`
-   - `DAILY_SEND_MINUTE`
    - `TIMEZONE`
    - `USE_WEBHOOK=true`
    - `ADMIN_CHAT_ID`
 4. Deploy the service.
-
-## How The Scheduler Works
-
-The project uses `APScheduler` with `AsyncIOScheduler`.
-
-- The scheduled send runs once per day using the configured hour and minute.
-- The scheduler uses the configured timezone.
-- It coalesces missed runs and limits concurrent executions to one instance.
-- The scheduled message uses the same menu formatter as the manual button-triggered reply.
-- Scheduled sends do not generate admin usage notifications.
 
 ## Troubleshooting
 
@@ -182,14 +180,13 @@ The project uses `APScheduler` with `AsyncIOScheduler`.
 If startup fails with a configuration error, check:
 
 - `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
 - `ADMIN_CHAT_ID`
 
 ### Telegram messages are not arriving
 
 - Verify the bot token is correct.
-- Make sure the target chat has started a conversation with the bot.
-- Double-check `TELEGRAM_CHAT_ID`.
+- Make sure the user has started a conversation with the bot.
+- Check the Render logs for webhook or API errors.
 
 ### Admin notifications are not arriving
 
@@ -197,11 +194,9 @@ If startup fails with a configuration error, check:
 - Make sure the bot is allowed to message that chat.
 - Check the app logs for notification send errors.
 
-### No halal items are returned
+### The first press feels slow
 
-- The bot only checks today's menus.
-- It only matches items containing the word `halal` in the item name or description.
-- If CSU does not publish halal text on the menu for that day, the bot will return no results.
+On Render free hosting, the service may need to wake up after inactivity. Once awake, the shorter Nutrislice timeouts, limited retries, and short-lived cache reduce repeated delays.
 
 ## Tests
 
@@ -213,7 +208,8 @@ pytest
 
 The tests cover:
 
-- halal filtering and cache reuse
-- highest-calorie Kosher Bistro lunch item
-- highest-calorie Kosher Bistro dinner item
-- message formatting
+- menu caching behavior
+- graceful error handling on the first request
+- heuristic Kosher Bistro main-item selection
+- fallback formatting
+- admin notifications

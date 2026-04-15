@@ -11,9 +11,6 @@ from dotenv import load_dotenv
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
-    telegram_chat_id: int
-    daily_send_hour: int
-    daily_send_minute: int
     timezone_name: str
     timezone: ZoneInfo
     port: int
@@ -27,9 +24,7 @@ def load_settings() -> Settings:
     load_dotenv(dotenv_path=env_path, override=True, encoding="utf-8-sig")
 
     token = _require_env("TELEGRAM_BOT_TOKEN")
-    chat_id_raw = _require_env("TELEGRAM_CHAT_ID")
-    daily_send_hour = _parse_bounded_int("DAILY_SEND_HOUR", default="7", minimum=0, maximum=23)
-    daily_send_minute = _parse_bounded_int("DAILY_SEND_MINUTE", default="0", minimum=0, maximum=59)
+    admin_chat_id_raw = _require_env("ADMIN_CHAT_ID")
     timezone_name = os.getenv("TIMEZONE", "America/Denver").strip() or "America/Denver"
     port = _parse_bounded_int("PORT", default="10000", minimum=1, maximum=65535)
     webhook_base_url = (
@@ -47,17 +42,12 @@ def load_settings() -> Settings:
         ) from exc
 
     try:
-        chat_id = int(chat_id_raw)
+        admin_chat_id = int(admin_chat_id_raw)
     except ValueError as exc:
-        raise ValueError("TELEGRAM_CHAT_ID must be an integer.") from exc
-
-    admin_chat_id = _parse_optional_int("ADMIN_CHAT_ID") or chat_id
+        raise ValueError("ADMIN_CHAT_ID must be an integer.") from exc
 
     return Settings(
         telegram_bot_token=token,
-        telegram_chat_id=chat_id,
-        daily_send_hour=daily_send_hour,
-        daily_send_minute=daily_send_minute,
         timezone_name=timezone_name,
         timezone=timezone,
         port=port,
@@ -99,13 +89,3 @@ def _parse_bool(name: str, *, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean-like value such as true or false.")
-
-
-def _parse_optional_int(name: str) -> int | None:
-    raw_value = os.getenv(name, "").strip()
-    if not raw_value:
-        return None
-    try:
-        return int(raw_value)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be an integer.") from exc

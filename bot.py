@@ -5,6 +5,7 @@ from datetime import datetime
 from time import monotonic
 
 from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import Settings
@@ -18,47 +19,30 @@ from constants import (
 from formatter import format_daily_menu, split_message
 from menu_service import MenuService
 from notifications import AdminNotificationService
-from scheduler import DailyMenuScheduler
 
 LOGGER = logging.getLogger(__name__)
 
 
 def build_application(settings: Settings, menu_service: MenuService) -> Application:
-    scheduler_holder: dict[str, DailyMenuScheduler] = {}
-
-    async def post_init(application: Application) -> None:
-        scheduler = DailyMenuScheduler(
-            bot=application.bot,
-            menu_service=menu_service,
-            settings=settings,
-        )
-        notification_service = AdminNotificationService(bot=application.bot, settings=settings)
-        scheduler_holder["scheduler"] = scheduler
-        application.bot_data["scheduler"] = scheduler
-        application.bot_data["notification_service"] = notification_service
-        scheduler.start()
-        LOGGER.info("Telegram application initialized.")
-
-    async def post_shutdown(application: Application) -> None:
-        del application
-        scheduler = scheduler_holder.get("scheduler")
-        if scheduler is not None:
-            scheduler.shutdown()
-
     application = (
         Application.builder()
         .token(settings.telegram_bot_token)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
+        .concurrent_updates(True)
         .build()
     )
 
     application.bot_data["menu_service"] = menu_service
     application.bot_data["settings"] = settings
     application.bot_data["user_request_times"] = {}
+    application.bot_data["notification_service"] = AdminNotificationService(
+        bot=application.bot,
+        settings=settings,
+    )
+
+    LOGGER.info("Telegram application initialized.")
 
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BOT_BUTTON_TEXT}$"), todays_halal_menu))
+    application.add_handler(MessageHandler(filters.Regex(r"(?i)^\s*todays halal menu\s*$"), todays_halal_menu))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text_message))
     application.add_error_handler(error_handler)
     return application
@@ -86,6 +70,8 @@ async def todays_halal_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     menu_service: MenuService = context.application.bot_data["menu_service"]
     notification_service: AdminNotificationService = context.application.bot_data["notification_service"]
     now = datetime.now(settings.timezone)
+    user = update.effective_user
+    chat = update.effective_chat
 
     if _is_rate_limited(update, context):
         await _reply_in_chunks(
@@ -97,20 +83,47 @@ async def todays_halal_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
+    LOGGER.info(
+        "Halal menu request started. user_id=%s chat_id=%s",
+        user.id if user is not None else "unknown",
+        chat.id if chat is not None else "unknown",
+    )
+
+    if chat is not None:
+        try:
+            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
+        except Exception:
+            LOGGER.debug("Failed to send typing action for chat_id=%s.", chat.id, exc_info=True)
+
     try:
         snapshot = await menu_service.get_today_halal_menu(now)
         message = format_daily_menu(snapshot, now)
+        LOGGER.info(
+            "Halal menu request succeeded. user_id=%s chat_id=%s cached_at=%s",
+            user.id if user is not None else "unknown",
+            chat.id if chat is not None else "unknown",
+            snapshot.fetched_at.isoformat(),
+        )
     except Exception:
         LOGGER.exception("Failed to build today's halal menu message.")
         message = GENERIC_ERROR_MESSAGE
 
-    await _reply_in_chunks(
-        update,
-        message,
-        include_keyboard=True,
-        context=context,
-        sent_at=now,
-    )
+    try:
+        await _reply_in_chunks(
+            update,
+            message,
+            include_keyboard=True,
+            context=context,
+            sent_at=now,
+        )
+    except Exception:
+        LOGGER.exception(
+            "Failed to send halal menu response. user_id=%s chat_id=%s",
+            user.id if user is not None else "unknown",
+            chat.id if chat is not None else "unknown",
+        )
+        return
+
     await notification_service.notify_manual_usage(
         update,
         action="Requested Today's Halal Menu",
@@ -173,3 +186,4 @@ async def _reply_in_chunks(
     for index, chunk in enumerate(chunks):
         reply_markup = build_reply_keyboard() if include_keyboard and index == len(chunks) - 1 else None
         await update.effective_message.reply_text(chunk, reply_markup=reply_markup)
+    LOGGER.info("Sent %s response chunk(s).", len(chunks))

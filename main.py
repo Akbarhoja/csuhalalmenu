@@ -16,11 +16,9 @@ def main() -> None:
     settings = load_settings()
 
     LOGGER.info(
-        "Starting CSU halal menu bot. Schedule=%02d:%02d Timezone=%s ChatID=%s Webhook=%s",
-        settings.daily_send_hour,
-        settings.daily_send_minute,
+        "Starting CSU halal menu bot. Timezone=%s AdminChatID=%s Webhook=%s",
         settings.timezone_name,
-        settings.telegram_chat_id,
+        settings.admin_chat_id,
         settings.use_webhook,
     )
 

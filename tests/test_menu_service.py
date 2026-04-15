@@ -143,7 +143,7 @@ def test_menu_service_filters_halal_and_deduplicates() -> None:
 
 def test_menu_service_uses_same_day_cache() -> None:
     client = FakeNutrisliceClient()
-    service = MenuService(client, "America/Denver")
+    service = MenuService(client, "America/Denver", cache_ttl_seconds=300)
     now = datetime(2026, 4, 10, 8, 0, tzinfo=ZoneInfo("America/Denver"))
 
     first_snapshot = asyncio.run(service.get_today_halal_menu(now))
@@ -152,6 +152,21 @@ def test_menu_service_uses_same_day_cache() -> None:
     assert first_snapshot is second_snapshot
     assert client.discover_calls == 1
     assert client.fetch_calls == 9
+
+
+def test_menu_service_refreshes_after_cache_ttl_expires() -> None:
+    client = FakeNutrisliceClient()
+    service = MenuService(client, "America/Denver", cache_ttl_seconds=60)
+
+    first_now = datetime(2026, 4, 10, 8, 0, tzinfo=ZoneInfo("America/Denver"))
+    second_now = datetime(2026, 4, 10, 8, 2, tzinfo=ZoneInfo("America/Denver"))
+
+    first_snapshot = asyncio.run(service.get_today_halal_menu(first_now))
+    second_snapshot = asyncio.run(service.get_today_halal_menu(second_now))
+
+    assert first_snapshot is not second_snapshot
+    assert client.discover_calls == 2
+    assert client.fetch_calls == 18
 
 
 def test_menu_service_prefers_strong_entree_over_side_items_for_lunch() -> None:
