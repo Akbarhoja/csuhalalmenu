@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -15,6 +15,13 @@ class MenuEntry:
     location_name: str
     item_name: str
     description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class KosherBistroMainFood:
+    status: str
+    item_name: str | None = None
+    calories: float | None = None
 
 
 @dataclass(slots=True)
@@ -34,3 +41,4 @@ class DailyMenuSnapshot:
     target_date: str
     fetched_at: datetime
     result: DailyMenuResult
+    kosher_bistro_main_food: KosherBistroMainFood
