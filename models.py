@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,10 +18,16 @@ class MenuEntry:
 
 
 @dataclass(frozen=True, slots=True)
-class KosherBistroMainFood:
+class KosherBistroMealMainFood:
     status: str
     item_name: str | None = None
     calories: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class KosherBistroMainFoods:
+    lunch: KosherBistroMealMainFood
+    dinner: KosherBistroMealMainFood
 
 
 @dataclass(slots=True)
@@ -41,4 +47,24 @@ class DailyMenuSnapshot:
     target_date: str
     fetched_at: datetime
     result: DailyMenuResult
-    kosher_bistro_main_food: KosherBistroMainFood
+    kosher_bistro_main_foods: KosherBistroMainFoods
+
+
+@dataclass(frozen=True, slots=True)
+class MessageLogEntry:
+    event_date: date
+    chat_id: int
+    message_type: str
+    success: bool
+    sent_at: datetime
+    failure_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MessageStatsSummary:
+    total_messages: int
+    successful: int
+    failed: int
+    unique_chats: int
+    scheduled: int
+    manual: int

@@ -24,6 +24,7 @@ class FakeNutrisliceClient:
 
     async def fetch_menu_payload(self, *, location_slug: str, meal_name: str, target_date: Any) -> Any:
         del target_date
+        self.fetch_calls += 1
         payloads = {
             ("braiden-hall", "Breakfast"): {
                 "menu_items": [
@@ -76,6 +77,14 @@ class FakeNutrisliceClient:
                                 },
                                 "food_id": 7,
                             },
+                            {
+                                "is_station_header": False,
+                                "menu_id": 149086,
+                                "food": {
+                                    "name": "Mystery Lunch",
+                                },
+                                "food_id": 8,
+                            },
                         ],
                     }
                 ]
@@ -87,7 +96,7 @@ class FakeNutrisliceClient:
                         "menu_info": {
                             "149087": {
                                 "position": 6,
-                                "section_options": {"display_name": "Kosher Bistro"},
+                                "section_options": {"display_name": "Kosher Bistro Dinner"},
                             }
                         },
                         "menu_items": [
@@ -98,8 +107,17 @@ class FakeNutrisliceClient:
                                     "name": "Braised Brisket",
                                     "rounded_nutrition_info": {"calories": 780},
                                 },
-                                "food_id": 8,
-                            }
+                                "food_id": 9,
+                            },
+                            {
+                                "is_station_header": False,
+                                "menu_id": 149087,
+                                "food": {
+                                    "name": "Roasted Chicken",
+                                    "rounded_nutrition_info": {"calories": 700},
+                                },
+                                "food_id": 10,
+                            },
                         ],
                     }
                 ]
@@ -144,7 +162,7 @@ def test_menu_service_uses_same_day_cache() -> None:
     assert client.fetch_calls == 9
 
 
-def test_menu_service_selects_highest_calorie_kosher_bistro_item() -> None:
+def test_menu_service_selects_highest_calorie_kosher_bistro_lunch_item() -> None:
     client = FakeNutrisliceClient()
     service = MenuService(client, "America/Denver")
 
@@ -154,7 +172,23 @@ def test_menu_service_selects_highest_calorie_kosher_bistro_item() -> None:
         )
     )
 
-    kosher_main_food = snapshot.kosher_bistro_main_food
-    assert kosher_main_food.status == "found"
-    assert kosher_main_food.item_name == "Braised Brisket"
-    assert kosher_main_food.calories == 780.0
+    lunch_main_food = snapshot.kosher_bistro_main_foods.lunch
+    assert lunch_main_food.status == "found"
+    assert lunch_main_food.item_name == "Chicken Tagine"
+    assert lunch_main_food.calories == 620.0
+
+
+def test_menu_service_selects_highest_calorie_kosher_bistro_dinner_item() -> None:
+    client = FakeNutrisliceClient()
+    service = MenuService(client, "America/Denver")
+
+    snapshot = asyncio.run(
+        service.get_today_halal_menu(
+            datetime(2026, 4, 10, 8, 0, tzinfo=ZoneInfo("America/Denver"))
+        )
+    )
+
+    dinner_main_food = snapshot.kosher_bistro_main_foods.dinner
+    assert dinner_main_food.status == "found"
+    assert dinner_main_food.item_name == "Braised Brisket"
+    assert dinner_main_food.calories == 780.0

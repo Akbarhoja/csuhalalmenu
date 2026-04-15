@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 
 from constants import INTRO_MESSAGE, MAX_TELEGRAM_MESSAGE_LENGTH, MEAL_ORDER, NO_ITEMS_MESSAGE
-from models import DailyMenuSnapshot, KosherBistroMainFood
+from models import DailyMenuSnapshot, KosherBistroMealMainFood
 
 
 def format_daily_menu(snapshot: DailyMenuSnapshot, now: datetime) -> str:
@@ -38,26 +38,30 @@ def format_daily_menu(snapshot: DailyMenuSnapshot, now: datetime) -> str:
                     lines.append(f"  - {entry.item_name}")
             lines.append("")
 
-    lines.extend(_format_kosher_bistro_section(snapshot.kosher_bistro_main_food))
+    lines.extend(_format_kosher_bistro_section(snapshot))
     return "\n".join(lines).rstrip()
 
 
-def _format_kosher_bistro_section(kosher_bistro_main_food: KosherBistroMainFood) -> list[str]:
-    lines = [
-        "Kosher Bistro Main Food:",
+def _format_kosher_bistro_section(snapshot: DailyMenuSnapshot) -> list[str]:
+    return [
+        "Kosher Bistro Main Foods:",
+        "Lunch:",
+        _format_kosher_bistro_line(snapshot.kosher_bistro_main_foods.lunch, meal_name="lunch"),
+        "",
+        "Dinner:",
+        _format_kosher_bistro_line(snapshot.kosher_bistro_main_foods.dinner, meal_name="dinner"),
     ]
 
+
+def _format_kosher_bistro_line(kosher_bistro_main_food: KosherBistroMealMainFood, *, meal_name: str) -> str:
     if kosher_bistro_main_food.status == "found":
         calories_text = _format_calories(kosher_bistro_main_food.calories)
-        lines.append(f"- {kosher_bistro_main_food.item_name} ({calories_text} cal)")
-        return lines
+        return f"- {kosher_bistro_main_food.item_name} ({calories_text} cal)"
 
     if kosher_bistro_main_food.status == "calories_unavailable":
-        lines.append("- Found Kosher Bistro items, but calorie data is unavailable")
-        return lines
+        return "- Found Kosher Bistro items, but calorie data is unavailable"
 
-    lines.append("- No Kosher Bistro items found today")
-    return lines
+    return f"- No Kosher Bistro items found for {meal_name}"
 
 
 def _format_calories(calories: float | None) -> str:
@@ -66,6 +70,24 @@ def _format_calories(calories: float | None) -> str:
     if calories.is_integer():
         return str(int(calories))
     return f"{calories:g}"
+
+
+def format_stats_report(report, today_label: str) -> str:
+    return (
+        "Bot Stats\n\n"
+        f"{today_label}:\n"
+        f"- Total messages: {report.today.total_messages}\n"
+        f"- Successful: {report.today.successful}\n"
+        f"- Failed: {report.today.failed}\n"
+        f"- Unique chats: {report.today.unique_chats}\n"
+        f"- Scheduled: {report.today.scheduled}\n"
+        f"- Manual: {report.today.manual}\n\n"
+        "All-time:\n"
+        f"- Total messages: {report.all_time.total_messages}\n"
+        f"- Successful: {report.all_time.successful}\n"
+        f"- Failed: {report.all_time.failed}\n"
+        f"- Unique chats: {report.all_time.unique_chats}"
+    )
 
 
 def split_message(text: str, limit: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:

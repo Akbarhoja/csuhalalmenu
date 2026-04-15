@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import logging
@@ -11,7 +11,8 @@ from models import (
     DailyMenuResult,
     DailyMenuSnapshot,
     DiningLocation,
-    KosherBistroMainFood,
+    KosherBistroMainFoods,
+    KosherBistroMealMainFood,
     MenuEntry,
 )
 from nutrislice_client import NutrisliceClient
@@ -69,7 +70,7 @@ class MenuService:
         )
 
         results: dict[str, dict[str, list[MenuEntry]]] = {meal_name: {} for meal_name in MEAL_ORDER}
-        kosher_bistro_candidates: list[dict[str, Any]] = []
+        kosher_candidates: dict[str, list[dict[str, Any]]] = {"Lunch": [], "Dinner": []}
 
         for location in locations:
             for meal_name in MEAL_ORDER:
@@ -97,8 +98,8 @@ class MenuService:
                 if entries:
                     results[meal_name][location.name] = entries
 
-                if self._is_foundry(location):
-                    kosher_bistro_candidates.extend(
+                if self._is_foundry(location) and meal_name in kosher_candidates:
+                    kosher_candidates[meal_name].extend(
                         self._extract_kosher_bistro_items(payload=payload, target_date=target_date)
                     )
 
@@ -106,7 +107,10 @@ class MenuService:
             target_date=target_date.isoformat(),
             fetched_at=now,
             result=DailyMenuResult(by_meal=results),
-            kosher_bistro_main_food=self._build_kosher_bistro_main_food(kosher_bistro_candidates),
+            kosher_bistro_main_foods=KosherBistroMainFoods(
+                lunch=self._build_kosher_bistro_meal_main_food("Lunch", kosher_candidates["Lunch"]),
+                dinner=self._build_kosher_bistro_meal_main_food("Dinner", kosher_candidates["Dinner"]),
+            ),
         )
 
     def _extract_halal_entries(
@@ -208,12 +212,13 @@ class MenuService:
                 kosher_menu_ids.add(str(menu_id))
         return kosher_menu_ids
 
-    def _build_kosher_bistro_main_food(
+    def _build_kosher_bistro_meal_main_food(
         self,
+        meal_name: str,
         candidates: list[dict[str, Any]],
-    ) -> KosherBistroMainFood:
+    ) -> KosherBistroMealMainFood:
         if not candidates:
-            return KosherBistroMainFood(status="not_found")
+            return KosherBistroMealMainFood(status="not_found")
 
         with_calories = [
             candidate
@@ -221,10 +226,10 @@ class MenuService:
             if isinstance(candidate.get("calories"), (int, float))
         ]
         if not with_calories:
-            return KosherBistroMainFood(status="calories_unavailable")
+            return KosherBistroMealMainFood(status="calories_unavailable")
 
         best = max(with_calories, key=lambda candidate: candidate["calories"])
-        return KosherBistroMainFood(
+        return KosherBistroMealMainFood(
             status="found",
             item_name=best["item_name"],
             calories=float(best["calories"]),
