@@ -21,7 +21,7 @@ class MenuEntry:
 class KosherBistroMealMainFood:
     status: str
     item_name: str | None = None
-    calories: float | None = None
+    all_items: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

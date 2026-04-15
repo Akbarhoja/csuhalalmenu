@@ -7,12 +7,12 @@ from datetime import date, datetime
 from typing import Any
 
 from constants import MEAL_ORDER
+from kosher_bistro_service import KosherBistroService
 from models import (
     DailyMenuResult,
     DailyMenuSnapshot,
     DiningLocation,
     KosherBistroMainFoods,
-    KosherBistroMealMainFood,
     MenuEntry,
 )
 from nutrislice_client import NutrisliceClient
@@ -25,6 +25,7 @@ class MenuService:
     def __init__(self, client: NutrisliceClient, timezone_name: str) -> None:
         self._client = client
         self._timezone_name = timezone_name
+        self._kosher_bistro_service = KosherBistroService()
         self._cache_lock = asyncio.Lock()
         self._cached_snapshot: DailyMenuSnapshot | None = None
 
@@ -70,7 +71,7 @@ class MenuService:
         )
 
         results: dict[str, dict[str, list[MenuEntry]]] = {meal_name: {} for meal_name in MEAL_ORDER}
-        kosher_candidates: dict[str, list[dict[str, Any]]] = {"Lunch": [], "Dinner": []}
+        kosher_items_by_meal: dict[str, list[str]] = {"Lunch": [], "Dinner": []}
 
         for location in locations:
             for meal_name in MEAL_ORDER:
@@ -98,9 +99,9 @@ class MenuService:
                 if entries:
                     results[meal_name][location.name] = entries
 
-                if self._is_foundry(location) and meal_name in kosher_candidates:
-                    kosher_candidates[meal_name].extend(
-                        self._extract_kosher_bistro_items(payload=payload, target_date=target_date)
+                if self._is_foundry(location) and meal_name in kosher_items_by_meal:
+                    kosher_items_by_meal[meal_name].extend(
+                        self._kosher_bistro_service.extract_items(payload=payload, target_date=target_date)
                     )
 
         return DailyMenuSnapshot(
@@ -108,8 +109,8 @@ class MenuService:
             fetched_at=now,
             result=DailyMenuResult(by_meal=results),
             kosher_bistro_main_foods=KosherBistroMainFoods(
-                lunch=self._build_kosher_bistro_meal_main_food("Lunch", kosher_candidates["Lunch"]),
-                dinner=self._build_kosher_bistro_meal_main_food("Dinner", kosher_candidates["Dinner"]),
+                lunch=self._kosher_bistro_service.choose_main_food(kosher_items_by_meal["Lunch"]),
+                dinner=self._kosher_bistro_service.choose_main_food(kosher_items_by_meal["Dinner"]),
             ),
         )
 
@@ -140,100 +141,6 @@ class MenuService:
                     deduplicated.append(entry)
                     break
         return deduplicated
-
-    def _extract_kosher_bistro_items(self, *, payload: Any, target_date: date) -> list[dict[str, Any]]:
-        relevant_payload = self._filter_payload_to_date(payload, target_date)
-        if not isinstance(relevant_payload, dict):
-            return []
-
-        days = relevant_payload.get("days")
-        if not isinstance(days, list):
-            return []
-
-        collected: dict[str, dict[str, Any]] = {}
-        for day in days:
-            if not isinstance(day, dict):
-                continue
-
-            kosher_menu_ids = self._extract_kosher_bistro_menu_ids(day)
-            if not kosher_menu_ids:
-                continue
-
-            for item in day.get("menu_items", []):
-                if not isinstance(item, dict):
-                    continue
-
-                menu_id = str(item.get("menu_id", ""))
-                if menu_id not in kosher_menu_ids:
-                    continue
-                if item.get("is_station_header"):
-                    continue
-
-                food = item.get("food")
-                if not isinstance(food, dict):
-                    continue
-
-                item_name = normalize_whitespace(food.get("name", "") or item.get("text", ""))
-                if not item_name:
-                    continue
-
-                calories = self._parse_calories(food)
-                key = item_name.casefold()
-                existing = collected.get(key)
-                if existing is None or (
-                    calories is not None and (
-                        existing["calories"] is None or calories > existing["calories"]
-                    )
-                ):
-                    collected[key] = {
-                        "item_name": item_name,
-                        "calories": calories,
-                    }
-
-        return list(collected.values())
-
-    def _extract_kosher_bistro_menu_ids(self, day_payload: dict[str, Any]) -> set[str]:
-        menu_info = day_payload.get("menu_info")
-        if not isinstance(menu_info, dict):
-            return set()
-
-        kosher_menu_ids: set[str] = set()
-        for menu_id, info in menu_info.items():
-            if not isinstance(info, dict):
-                continue
-
-            section_options = info.get("section_options")
-            if not isinstance(section_options, dict):
-                continue
-
-            display_name = normalize_whitespace(section_options.get("display_name", ""))
-            display_name_cf = display_name.casefold()
-            if "kosher" in display_name_cf and "bistro" in display_name_cf:
-                kosher_menu_ids.add(str(menu_id))
-        return kosher_menu_ids
-
-    def _build_kosher_bistro_meal_main_food(
-        self,
-        meal_name: str,
-        candidates: list[dict[str, Any]],
-    ) -> KosherBistroMealMainFood:
-        if not candidates:
-            return KosherBistroMealMainFood(status="not_found")
-
-        with_calories = [
-            candidate
-            for candidate in candidates
-            if isinstance(candidate.get("calories"), (int, float))
-        ]
-        if not with_calories:
-            return KosherBistroMealMainFood(status="calories_unavailable")
-
-        best = max(with_calories, key=lambda candidate: candidate["calories"])
-        return KosherBistroMealMainFood(
-            status="found",
-            item_name=best["item_name"],
-            calories=float(best["calories"]),
-        )
 
     def _filter_payload_to_date(self, payload: Any, target_date: date) -> Any:
         if not isinstance(payload, dict):
@@ -310,30 +217,6 @@ class MenuService:
             "name": name or "",
             "description": description or "",
         }
-
-    def _parse_calories(self, food_payload: dict[str, Any]) -> float | None:
-        rounded_nutrition_info = food_payload.get("rounded_nutrition_info")
-        if isinstance(rounded_nutrition_info, dict):
-            parsed = self._safe_float(rounded_nutrition_info.get("calories"))
-            if parsed is not None:
-                return parsed
-
-        return self._safe_float(food_payload.get("calories"))
-
-    def _safe_float(self, value: Any) -> float | None:
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            cleaned = value.strip().replace(",", "")
-            if not cleaned:
-                return None
-            try:
-                return float(cleaned)
-            except ValueError:
-                return None
-        return None
 
     def _first_text(self, payload: dict[str, Any], keys: tuple[str, ...]) -> str | None:
         for key in keys:

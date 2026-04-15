@@ -43,33 +43,32 @@ def format_daily_menu(snapshot: DailyMenuSnapshot, now: datetime) -> str:
 
 
 def _format_kosher_bistro_section(snapshot: DailyMenuSnapshot) -> list[str]:
-    return [
+    lines = [
         "Kosher Bistro Main Foods:",
         "Lunch:",
-        _format_kosher_bistro_line(snapshot.kosher_bistro_main_foods.lunch, meal_name="lunch"),
+    ]
+    lines.extend(_format_kosher_bistro_lines(snapshot.kosher_bistro_main_foods.lunch, meal_name="lunch"))
+    lines.extend([
         "",
         "Dinner:",
-        _format_kosher_bistro_line(snapshot.kosher_bistro_main_foods.dinner, meal_name="dinner"),
-    ]
+    ])
+    lines.extend(_format_kosher_bistro_lines(snapshot.kosher_bistro_main_foods.dinner, meal_name="dinner"))
+    return lines
 
 
-def _format_kosher_bistro_line(kosher_bistro_main_food: KosherBistroMealMainFood, *, meal_name: str) -> str:
+def _format_kosher_bistro_lines(
+    kosher_bistro_main_food: KosherBistroMealMainFood,
+    *,
+    meal_name: str,
+) -> list[str]:
     if kosher_bistro_main_food.status == "found":
-        calories_text = _format_calories(kosher_bistro_main_food.calories)
-        return f"- {kosher_bistro_main_food.item_name} ({calories_text} cal)"
-
-    if kosher_bistro_main_food.status == "calories_unavailable":
-        return "- Found Kosher Bistro items, but calorie data is unavailable"
-
-    return f"- No Kosher Bistro items found for {meal_name}"
-
-
-def _format_calories(calories: float | None) -> str:
-    if calories is None:
-        return "0"
-    if calories.is_integer():
-        return str(int(calories))
-    return f"{calories:g}"
+        return [f"- {kosher_bistro_main_food.item_name}"]
+    if kosher_bistro_main_food.status == "unclear":
+        return [
+            "- Main item unclear, showing all items:",
+            *[f"  - {item}" for item in kosher_bistro_main_food.all_items],
+        ]
+    return [f"- No Kosher Bistro items found for {meal_name}"]
 
 
 def split_message(text: str, limit: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:

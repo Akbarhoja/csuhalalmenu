@@ -36,12 +36,10 @@ def test_format_daily_menu_with_results() -> None:
             lunch=KosherBistroMealMainFood(
                 status="found",
                 item_name="Chicken Tagine",
-                calories=620.0,
             ),
             dinner=KosherBistroMealMainFood(
                 status="found",
                 item_name="Braised Brisket",
-                calories=780.0,
             ),
         ),
     )
@@ -57,9 +55,9 @@ def test_format_daily_menu_with_results() -> None:
     assert message.endswith(
         "Kosher Bistro Main Foods:\n"
         "Lunch:\n"
-        "- Chicken Tagine (620 cal)\n\n"
+        "- Chicken Tagine\n\n"
         "Dinner:\n"
-        "- Braised Brisket (780 cal)"
+        "- Braised Brisket"
     )
 
 
@@ -70,7 +68,10 @@ def test_format_daily_menu_without_results() -> None:
         result=DailyMenuResult(by_meal={"Breakfast": {}, "Lunch": {}, "Dinner": {}}),
         kosher_bistro_main_foods=KosherBistroMainFoods(
             lunch=KosherBistroMealMainFood(status="not_found"),
-            dinner=KosherBistroMealMainFood(status="calories_unavailable"),
+            dinner=KosherBistroMealMainFood(
+                status="unclear",
+                all_items=["Rice Pilaf", "Fresh Salad", "Pita Bread"],
+            ),
         ),
     )
 
@@ -81,5 +82,8 @@ def test_format_daily_menu_without_results() -> None:
         "Lunch:\n"
         "- No Kosher Bistro items found for lunch\n\n"
         "Dinner:\n"
-        "- Found Kosher Bistro items, but calorie data is unavailable"
+        "- Main item unclear, showing all items:\n"
+        "  - Rice Pilaf\n"
+        "  - Fresh Salad\n"
+        "  - Pita Bread"
     )

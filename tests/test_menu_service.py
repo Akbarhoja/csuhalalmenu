@@ -62,27 +62,19 @@ class FakeNutrisliceClient:
                             {
                                 "is_station_header": False,
                                 "menu_id": 149086,
-                                "food": {
-                                    "name": "Chicken Tagine",
-                                    "rounded_nutrition_info": {"calories": 620},
-                                },
+                                "food": {"name": "Rice Pilaf"},
                                 "food_id": 6,
                             },
                             {
                                 "is_station_header": False,
                                 "menu_id": 149086,
-                                "food": {
-                                    "name": "Falafel Plate",
-                                    "rounded_nutrition_info": {"calories": "540"},
-                                },
+                                "food": {"name": "Chicken Shawarma Bowl"},
                                 "food_id": 7,
                             },
                             {
                                 "is_station_header": False,
                                 "menu_id": 149086,
-                                "food": {
-                                    "name": "Mystery Lunch",
-                                },
+                                "food": {"name": "Fresh Salad"},
                                 "food_id": 8,
                             },
                         ],
@@ -103,20 +95,20 @@ class FakeNutrisliceClient:
                             {
                                 "is_station_header": False,
                                 "menu_id": 149087,
-                                "food": {
-                                    "name": "Braised Brisket",
-                                    "rounded_nutrition_info": {"calories": 780},
-                                },
+                                "food": {"name": "Rice Pilaf"},
                                 "food_id": 9,
                             },
                             {
                                 "is_station_header": False,
                                 "menu_id": 149087,
-                                "food": {
-                                    "name": "Roasted Chicken",
-                                    "rounded_nutrition_info": {"calories": 700},
-                                },
+                                "food": {"name": "Fresh Salad"},
                                 "food_id": 10,
+                            },
+                            {
+                                "is_station_header": False,
+                                "menu_id": 149087,
+                                "food": {"name": "Pita Bread"},
+                                "food_id": 11,
                             },
                         ],
                     }
@@ -162,7 +154,7 @@ def test_menu_service_uses_same_day_cache() -> None:
     assert client.fetch_calls == 9
 
 
-def test_menu_service_selects_highest_calorie_kosher_bistro_lunch_item() -> None:
+def test_menu_service_prefers_strong_entree_over_side_items_for_lunch() -> None:
     client = FakeNutrisliceClient()
     service = MenuService(client, "America/Denver")
 
@@ -174,11 +166,11 @@ def test_menu_service_selects_highest_calorie_kosher_bistro_lunch_item() -> None
 
     lunch_main_food = snapshot.kosher_bistro_main_foods.lunch
     assert lunch_main_food.status == "found"
-    assert lunch_main_food.item_name == "Chicken Tagine"
-    assert lunch_main_food.calories == 620.0
+    assert lunch_main_food.item_name == "Chicken Shawarma Bowl"
+    assert lunch_main_food.all_items == []
 
 
-def test_menu_service_selects_highest_calorie_kosher_bistro_dinner_item() -> None:
+def test_menu_service_falls_back_to_all_items_when_main_is_unclear_for_dinner() -> None:
     client = FakeNutrisliceClient()
     service = MenuService(client, "America/Denver")
 
@@ -189,6 +181,6 @@ def test_menu_service_selects_highest_calorie_kosher_bistro_dinner_item() -> Non
     )
 
     dinner_main_food = snapshot.kosher_bistro_main_foods.dinner
-    assert dinner_main_food.status == "found"
-    assert dinner_main_food.item_name == "Braised Brisket"
-    assert dinner_main_food.calories == 780.0
+    assert dinner_main_food.status == "unclear"
+    assert dinner_main_food.item_name is None
+    assert dinner_main_food.all_items == ["Rice Pilaf", "Fresh Salad", "Pita Bread"]
