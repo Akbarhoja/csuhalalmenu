@@ -8,6 +8,7 @@ The bot also:
 - falls back to listing all Kosher Bistro items for a meal if no clear main dish is detected
 - sends an admin notification whenever a user manually requests today's halal menu
 - uses a short in-memory cache to speed up repeated requests during the same runtime
+- sends an immediate loading message so users know the request is being processed
 
 ## Project Structure
 
@@ -44,7 +45,7 @@ csuhalalmenu/
 
 When a user presses `Todays Halal Menu`, the bot:
 
-1. Acknowledges the request quickly.
+1. Immediately sends a loading message so the user is not left waiting silently.
 2. Fetches or reuses a short-lived in-memory cache of today's menu data.
 3. Checks all discoverable CSU dining locations for today's breakfast, lunch, and dinner menus.
 4. Filters items whose name or description contains `halal`, case-insensitively.
@@ -101,6 +102,20 @@ This user used the bot:
 
 If the admin notification fails, the bot logs the error and still replies to the user normally.
 
+## Commands And First-Request Flow
+
+The bot supports:
+
+- the reply keyboard button `Todays Halal Menu`
+- `/start`
+- `/menu`
+
+`/start` immediately returns a welcome message and shows the reply keyboard.
+
+`/menu` triggers the same menu-fetch flow as pressing the button. This helps when the keyboard is not visible yet or the user is interacting right after a cold start.
+
+When possible, the same first request that wakes the app is also the one that gets the loading message and final menu response.
+
 ## Performance Notes
 
 To improve responsiveness:
@@ -109,6 +124,7 @@ To improve responsiveness:
 - today's menu snapshot is cached for a short time window
 - per-location meal fetches are run concurrently
 - HTTP timeouts are shorter and retries are limited to transient transport issues
+- the menu handler sends a visible loading message before the slower fetch work begins
 
 This keeps repeated button presses from hammering Nutrislice unnecessarily while still refreshing data often enough for normal use.
 
@@ -162,6 +178,8 @@ This repository includes both a `Dockerfile` and `render.yaml`, so it can be dep
 
 You can deploy the bot as a free web service using Telegram webhooks. Because free Render services can sleep after inactivity, the bot is designed for on-demand use instead of automatic scheduled sends.
 
+After a cold start, Render may still need a brief wake-up period at the platform level, but the bot now sends a loading message as soon as that first request is actually being handled so the user gets visible feedback instead of silence.
+
 ### Deploy Steps
 
 1. Push the project to GitHub.
@@ -210,6 +228,8 @@ The tests cover:
 
 - menu caching behavior
 - graceful error handling on the first request
+- loading message behavior
+- `/start` and `/menu` request handling
 - heuristic Kosher Bistro main-item selection
 - fallback formatting
 - admin notifications

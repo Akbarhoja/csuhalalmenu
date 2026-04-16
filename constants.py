@@ -11,7 +11,9 @@ MEAL_SLUGS = {
     "Dinner": "dinner",
 }
 GENERIC_ERROR_MESSAGE = "Meow, meow! I couldn't check the halal menu right now. Please try again soon."
-UNKNOWN_MESSAGE = "Press the button below to check today's halal menu."
+UNKNOWN_MESSAGE = "Press the button below or send /menu to check today's halal menu."
+WELCOME_MESSAGE = "Welcome! Press `Todays Halal Menu` or send /menu to check today's halal menu."
+LOADING_MESSAGE = "Checking today's halal menu for you..."
 COOLDOWN_MESSAGE = "Meow, meow! Please wait a few seconds before asking again."
 MAX_TELEGRAM_MESSAGE_LENGTH = 3500
 USER_REQUEST_COOLDOWN_SECONDS = 3
